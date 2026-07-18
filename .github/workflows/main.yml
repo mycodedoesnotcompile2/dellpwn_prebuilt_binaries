@@ -246,7 +246,7 @@ jobs:
         
       - name: Run build
         run: |
-          cd $DELLPWN_CRATE
+          cd $DELLPWN_ROOT_DIR
 
           if [[ -z "${CC_COMPILER:-}" ]]; then
             CC_COMPILER="cargo"

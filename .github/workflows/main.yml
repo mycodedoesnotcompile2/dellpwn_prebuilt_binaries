@@ -253,9 +253,9 @@ jobs:
           fi
           
           if [[ $TARGET == "mips"* ]]; then
-            $CC_COMPILER +nightly build -Z build-std=std,panic_abort -p "$DELLPWN_BIN_NAME" --release --target $TARGET --features static
+            $CC_COMPILER +nightly build -Z build-std=std,panic_abort -p "$DELLPWN_BIN_NAME" --release --target $TARGET
           else
-            $CC_COMPILER build -p "$DELLPWN_BIN_NAME" --release --target $TARGET --features static
+            $CC_COMPILER build -p "$DELLPWN_BIN_NAME" --release --target $TARGET
           fi
                 
       - name: List build information

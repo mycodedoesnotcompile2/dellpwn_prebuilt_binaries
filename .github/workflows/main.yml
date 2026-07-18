@@ -1,0 +1,332 @@
+name: Build binary
+
+on:
+  workflow_dispatch
+  # schedule:
+  #  - cron: '5 5 * * *'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  DELLPWN_ROOT_DIR: /tmp/dellpwn
+  DELLPWN_BIN_NAME: dellpwn
+  DELLPWN_CRATE: /tmp/dellpwn/crates/dellpwn
+  DELLPWN_REPO: https://github.com/R3n5k1/dellpwn.git
+  APT: sudo apt -y -qq -o=Dpkg::Use-Pty=0
+  CHOCO: choco install -y -r --no-progress
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checkout:
+    runs-on: ubuntu-latest
+    outputs:
+      DELLPWN_PREBUILT_LATEST_TAG: ${{ steps.release_latest_tag.outputs.DELLPWN_PREBUILT_LATEST_TAG }}
+      DELLPWN_CURRENT_COMMIT_ID: ${{ steps.release_commit_id.outputs.DELLPWN_CURRENT_COMMIT_ID }}
+      DELLPWN_VERSION: ${{ steps.release_version.outputs.DELLPWN_VERSION }}
+    
+    steps:
+      - name: Get latest release tag of this repo
+        id: release_latest_tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd /tmp/
+          DELLPWN_PREBUILT_LATEST_TAG=$(gh release list -R mycodedoesnotcompile2/dellpwn_prebuilt_binaries --json tagName -L 1 --jq '.[].tagName' --exclude-drafts --exclude-pre-releases)
+          echo "DELLPWN_PREBUILT_LATEST_TAG=$DELLPWN_PREBUILT_LATEST_TAG" >> $GITHUB_OUTPUT
+          echo "DELLPWN_PREBUILT_LATEST_TAG=$DELLPWN_PREBUILT_LATEST_TAG" >> $GITHUB_ENV
+
+      - name: Clone repo and check if there is a new and uncompiled yet version
+        id: release_commit_id
+        run: |
+          cd /tmp/
+          git clone --depth=1 "$DELLPWN_REPO" "$DELLPWN_BIN_NAME"
+
+          cd "$DELLPWN_ROOT_DIR"
+          DELLPWN_CURRENT_COMMIT_ID=$(git rev-parse --short HEAD)
+          echo "DELLPWN_CURRENT_COMMIT_ID=$DELLPWN_CURRENT_COMMIT_ID" >> $GITHUB_ENV
+          echo "DELLPWN_CURRENT_COMMIT_ID=$DELLPWN_CURRENT_COMMIT_ID" >> $GITHUB_OUTPUT
+
+          # case: no new commit => abort the workflow
+          if [[ $DELLPWN_PREBUILT_LATEST_TAG == $DELLPWN_CURRENT_COMMIT_ID ]]; then
+            echo "[!] No new version to compile"
+            exit 100
+          fi
+
+      - name: Get version
+        id: release_version_cargo_get
+        uses: nicolaiunrein/cargo-get@master
+        with:
+          subcommand: package.version
+          options: --entry "$DELLPWN_CRATE/Cargo.toml"
+
+      - name: Set DELLPWN_VERSION build variable
+        id: release_version
+        run: |
+          DELLPWN_VERSION=${{ steps.release_version_cargo_get.outputs.metadata }}
+          echo "DELLPWN_VERSION=$DELLPWN_VERSION" >> $GITHUB_OUTPUT
+
+
+  
+  build:
+    needs: checkout
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - TARGET: x86_64-unknown-linux-musl
+            OS: ubuntu-latest
+            
+          - TARGET: x86_64-unknown-linux-gnu
+            OS: ubuntu-latest
+            
+          - TARGET: i686-unknown-linux-gnu
+            OS: ubuntu-latest
+            CC_PKG: gcc-multilib
+
+          - TARGET: i686-unknown-linux-musl
+            OS: ubuntu-latest
+            CC_COMPILER: cross
+            CC_PKG: gcc-multilib
+          
+          - TARGET: aarch64-unknown-linux-musl
+            OS: ubuntu-24.04-arm
+            
+          - TARGET: aarch64-unknown-linux-gnu
+            OS: ubuntu-24.04-arm
+          
+          - TARGET: armv7-unknown-linux-musleabihf
+            OS: ubuntu-latest
+            CC_COMPILER: cross
+          
+          - TARGET: armv7-unknown-linux-gnueabihf
+            OS: ubuntu-latest
+            CC_PKG: crossbuild-essential-armhf
+
+          - TARGET: arm-unknown-linux-musleabihf
+            OS: ubuntu-latest
+            CC_COMPILER: cross
+          
+          - TARGET: arm-unknown-linux-gnueabihf
+            OS: ubuntu-latest
+            CC_PKG: gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+
+          - TARGET: arm-unknown-linux-musleabi
+            OS: ubuntu-latest
+            CC_COMPILER: cross
+          
+          - TARGET: aarch64-apple-darwin
+            OS: macos-latest
+
+          - TARGET: x86_64-apple-darwin
+            OS: macos-26-intel
+          
+          - TARGET: x86_64-pc-windows-msvc
+            OS: windows-latest
+            
+          - TARGET: x86_64-pc-windows-gnu
+            OS: windows-latest
+            
+          - TARGET: aarch64-pc-windows-msvc
+            OS: windows-11-arm
+          # ------------------------------
+
+          - TARGET: x86_64-unknown-freebsd
+            OS: ubuntu-latest
+            CC_COMPILER: cross
+            
+          - TARGET: i586-unknown-linux-gnu
+            OS: ubuntu-latest
+            CC_COMPILER: cross
+
+          - TARGET: i586-unknown-linux-musl
+            OS: ubuntu-latest
+            CC_COMPILER: cross
+
+          - TARGET: i686-pc-windows-msvc
+            OS: windows-latest
+
+          - TARGET: i686-pc-windows-gnu
+            OS: ubuntu-latest
+            CC_PKG: gcc-mingw-w64-i686
+
+          - TARGET: riscv64gc-unknown-linux-gnu
+            OS: ubuntu-latest
+            CC_PKG: gcc-riscv64-linux-gnu
+
+          - TARGET: riscv64gc-unknown-linux-musl
+            OS: ubuntu-latest
+            CC_COMPILER: cross
+
+          - TARGET: powerpc64le-unknown-linux-gnu
+            OS: ubuntu-latest
+            CC_COMPILER: cross
+
+          - TARGET: aarch64-linux-android
+            OS: ubuntu-latest
+            CC_COMPILER: cross
+            
+          - TARGET: armv7-linux-androideabi
+            OS: ubuntu-latest
+            CC_COMPILER: cross
+            
+          - TARGET: mips64el-unknown-linux-gnuabi64
+            OS: ubuntu-latest
+            CC_PKG: gcc-mips64el-linux-gnuabi64 g++-mips64el-linux-gnuabi64
+           
+          - TARGET: mips64el-unknown-linux-muslabi64
+            OS: ubuntu-latest
+            CC_COMPILER: cross
+            
+    runs-on: ${{ matrix.OS }}
+    container:
+      image: ${{ matrix.CONTAINER }}
+
+    env:
+      TARGET: ${{ matrix.TARGET }}
+      OS: ${{ matrix.OS }}
+      CONTAINER: ${{ matrix.CONTAINER }}
+      CC_PKG: ${{ matrix.CC_PKG }}
+      CC_COMPILER: ${{ matrix.CC_COMPILER }}
+      CROSS_CONFIG: /tmp/cross.toml
+
+      DELLPWN_PREBUILT_LATEST_TAG: ${{ needs.checkout.outputs.DELLPWN_PREBUILT_LATEST_TAG }}
+      DELLPWN_VERSION: ${{ needs.checkout.outputs.DELLPWN_VERSION }}
+      
+    steps:
+      - name: Clone repo
+        run: |
+          cd /tmp/
+          git clone --depth=1 "$DELLPWN_REPO" "$DELLPWN_BIN_NAME"
+      
+      - name: Install and configure dependencies
+        run: |
+          if [[ $OS == windows* ]]; then
+            $CHOCO wget
+          fi
+          
+          if [[ $OS == ubuntu* ]]; then
+            $APT update
+          fi
+
+          # for musl builds
+          if [[ $TARGET == *"-musl"* ]]; then
+            $APT install musl-tools
+          fi
+
+          # for everything else
+          if [[ -n "${CC_PKG:-}" ]]; then
+            $APT install $CC_PKG
+          fi
+
+          # for arm targets
+          if [[ $TARGET == "arm"* ]]; then
+            cd "$DELLPWN_ROOT_DIR"
+            cargo install --force --locked bindgen-cli
+          fi
+          
+          cargo install cross
+          
+          wget -nv "https://github.com/mycodedoesnotcompile2/rust_compile_config_files/raw/refs/heads/main/cross.toml" -O "$CROSS_CONFIG"
+          wget -nv "https://github.com/mycodedoesnotcompile2/rust_compile_config_files/raw/refs/heads/main/config.toml" -O ~/.cargo/config.toml
+
+      
+      - name: Install rust target
+        run: |
+          if [[ $TARGET == "mips"* ]]; then
+            rustup toolchain install nightly
+            rustup component add rust-src --toolchain nightly
+          else
+            rustup target add $TARGET
+          fi
+        
+      - name: Run build
+        run: |
+          cd $DELLPWN_CRATE
+
+          if [[ -z "${CC_COMPILER:-}" ]]; then
+            CC_COMPILER="cargo"
+          fi
+          
+          if [[ $TARGET == "mips"* ]]; then
+            $CC_COMPILER +nightly build -Z build-std=std,panic_abort -p "$DELLPWN_BIN_NAME" --release --target $TARGET --features static
+          else
+            $CC_COMPILER build -p "$DELLPWN_BIN_NAME" --release --target $TARGET --features static
+          fi
+                
+      - name: List build information
+        run: |
+          OLD_DELLPWN_BIN_DIR="$DELLPWN_ROOT_DIR/target/$TARGET/release"
+          OLD_DELLPWN_BIN_PATH="$OLD_DELLPWN_BIN_DIR/$DELLPWN_BIN_NAME"
+          ls -alh "$OLD_DELLPWN_BIN_DIR"
+          if [[ $TARGET == *-windows-* ]]; then
+            OLD_DELLPWN_BIN_PATH="$OLD_DELLPWN_BIN_DIR/$DELLPWN_BIN_NAME.exe"
+          fi
+          
+          DELLPWN_BIN_PATH="${{ runner.temp }}/$DELLPWN_BIN_NAME-$DELLPWN_VERSION-$TARGET"
+          if [[ $OS == windows* || $TARGET == *-windows-* ]]; then
+            DELLPWN_BIN_PATH="${{ runner.temp }}/$DELLPWN_BIN_NAME-$DELLPWN_VERSION-$TARGET.exe"
+          fi
+          DELLPWN_BIN_HASH_PATH="$DELLPWN_BIN_PATH.sha256.txt"
+          
+          cp -f "$OLD_DELLPWN_BIN_PATH" "$DELLPWN_BIN_PATH"
+          ls -alh "$DELLPWN_BIN_PATH"
+
+          cd "$(dirname "$DELLPWN_BIN_PATH")"
+          sha256sum --tag "$(basename "$DELLPWN_BIN_PATH")" | tee "$DELLPWN_BIN_HASH_PATH"
+          ldd "$DELLPWN_BIN_PATH" || true
+          "$DELLPWN_BIN_PATH" -h || true 
+          
+          echo "DELLPWN_BIN_PATH=$DELLPWN_BIN_PATH" >> $GITHUB_ENV
+          echo "DELLPWN_BIN_HASH_PATH=$DELLPWN_BIN_HASH_PATH" >> $GITHUB_ENV
+        
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: binary-${{ matrix.TARGET }}
+          path: |
+            ${{ env.DELLPWN_BIN_PATH }}
+            ${{ env.DELLPWN_BIN_HASH_PATH }}
+
+  deploy_release:
+    needs: [checkout, build]
+    runs-on: ubuntu-latest
+    env:
+       DELLPWN_CURRENT_COMMIT_ID: ${{ needs.checkout.outputs.DELLPWN_CURRENT_COMMIT_ID }}
+       DELLPWN_VERSION: ${{ needs.checkout.outputs.DELLPWN_VERSION }}
+    
+    steps:
+     - name: Download Artifact
+       uses: actions/download-artifact@v8
+       with:
+        pattern: binary-*
+        merge-multiple: true
+        path: /tmp/results
+
+     - name: List target
+       run: |
+          cd "/tmp/results"
+          ls -alh
+  
+          RELEASE_NOTES="/tmp/release_notes.txt"
+          echo "RELEASE_NOTES=$RELEASE_NOTES" >> $GITHUB_ENV
+          
+          cat *.sha256.txt > "$RELEASE_NOTES"
+          sha256sum -c *.sha256.txt
+          
+          mkdir -p "/tmp/hashes"
+          mv -f *.sha256.txt "/tmp/hashes/"
+  
+     - name: Create a new Github release
+       uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b #v3.0.1
+       with:
+         make_latest: true
+         body_path: ${{ env.RELEASE_NOTES }}
+         name: version ${{ env.DELLPWN_VERSION }} - build ${{ env.DELLPWN_CURRENT_COMMIT_ID }}
+         tag_name: ${{ env.DELLPWN_CURRENT_COMMIT_ID }}
+         files: |
+           /tmp/results/${{ env.DELLPWN_BIN_NAME }}-*

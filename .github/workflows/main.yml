@@ -62,7 +62,7 @@ jobs:
         uses: nicolaiunrein/cargo-get@master
         with:
           subcommand: package.version
-          options: --entry "$DELLPWN_CRATE/Cargo.toml"
+          options: --entry "$DELLPWN_ROOT_DIR/Cargo.toml"
 
       - name: Set DELLPWN_VERSION build variable
         id: release_version
